@@ -41,7 +41,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "derive": {
       "command": "node",
-      "args": ["/path/to/derive-mcp/mcp-server.mjs"]
+      "args": ["/path/to/derive-mcp/server.mjs"]
     }
   }
 }
@@ -58,7 +58,7 @@ Add to your project's `.mcp.json`:
   "mcpServers": {
     "derive": {
       "command": "node",
-      "args": ["/path/to/derive-mcp/mcp-server.mjs"]
+      "args": ["/path/to/derive-mcp/server.mjs"]
     }
   }
 }
@@ -67,13 +67,13 @@ Add to your project's `.mcp.json`:
 Or run directly:
 
 ```bash
-claude mcp add derive node /path/to/derive-mcp/mcp-server.mjs
+claude mcp add derive node /path/to/derive-mcp/server.mjs
 ```
 
 ### MCP Inspector (debugging)
 
 ```bash
-npx @modelcontextprotocol/inspector node mcp-server.mjs
+npx @modelcontextprotocol/inspector node server.mjs
 ```
 
 ## Tests

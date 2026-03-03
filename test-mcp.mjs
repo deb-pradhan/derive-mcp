@@ -17,7 +17,7 @@ const results = [];
 async function setup() {
   const transport = new StdioClientTransport({
     command: "node",
-    args: ["mcp-server.mjs"],
+    args: ["server.mjs"],
     env: process.env,
   });
   client = new Client({ name: "test-client", version: "1.0.0" });

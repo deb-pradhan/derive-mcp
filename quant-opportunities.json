@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-03-01T16:43:34.131Z",
+  "spot": {
+    "btcSpot": 66908.09421903068,
+    "realizedVol30d": 1.4783077808842757
+  },
+  "derive": {
+    "btcOptionInstruments": 788,
+    "expiries": 13,
+    "tickerCount": 718
+  },
+  "polymarket": {
+    "btcMarketsFound": 1,
+    "matchedPriceThresholdMarkets": 0
+  },
+  "topOpportunities": [],
+  "allMatches": []
+}
