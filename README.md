@@ -1,17 +1,33 @@
 # Derive MCP Server
 
-An MCP (Model Context Protocol) server that provides market data from [Derive.xyz](https://derive.xyz) (formerly Lyra Finance). All endpoints are public — no authentication required.
+An MCP server that gives AI assistants access to real-time market data from [Derive.xyz](https://derive.xyz) (formerly Lyra Finance).
 
-## Tools
+## What is this?
 
-| Tool | Description |
+This connects AI assistants like Claude to live crypto derivatives data — options, perpetuals, funding rates, liquidations, and more. Once set up, your AI can pull real-time prices, analyze market conditions, and check historical data without you doing anything manually.
+
+All 15 endpoints are public. No API keys needed.
+
+## How it works
+
+```
+AI Assistant (Claude, Cursor, etc.)
+        ↓
+   MCP Protocol
+        ↓
+   This Server (15 tools)
+        ↓
+ Derive Public API → Live market data
+```
+
+## Available Tools
+
+| Tool | What it does |
 |------|-------------|
 | `get_all_currencies` | List all available currencies |
-| `get_currency` | Details for a specific currency |
-| `get_all_instruments` | List instruments (options, perps, ERC20) |
-| `get_instrument` | Details for a specific instrument |
-| `get_ticker` | Current price, volume, bid/ask for an instrument |
+| `get_ticker` | Current price, volume, bid/ask for any instrument |
 | `get_tickers` | Tickers for all instruments of a given type |
+| `get_all_instruments` | List options, perps, and ERC20 tokens |
 | `get_spot_feed_history` | Historical spot prices |
 | `get_spot_feed_history_candles` | OHLC candlestick data |
 | `get_funding_rate_history` | Perpetual funding rate history |
@@ -21,18 +37,18 @@ An MCP (Model Context Protocol) server that provides market data from [Derive.xy
 | `get_liquidation_history` | Liquidation events |
 | `get_margin` | Margin requirement simulation |
 | `get_statistics` | Platform volume and open interest stats |
+| `get_currency` | Details for a specific currency |
+| `get_instrument` | Details for a specific instrument |
 
 ## Setup
 
 ```bash
-git clone https://github.com/aadarshvelu/derive-mcp.git
+git clone https://github.com/deb-pradhan/derive-mcp.git
 cd derive-mcp
 npm install
 ```
 
-## Usage
-
-### Claude Desktop
+### Use with Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -47,43 +63,18 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The 15 market data tools will be available.
+Restart Claude Desktop. All 15 market data tools will be available.
 
-### Claude Code
-
-Add to your project's `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "derive": {
-      "command": "node",
-      "args": ["/path/to/derive-mcp/server.mjs"]
-    }
-  }
-}
-```
-
-Or run directly:
-
-```bash
-claude mcp add derive node /path/to/derive-mcp/server.mjs
-```
-
-### MCP Inspector (debugging)
-
-```bash
-npx @modelcontextprotocol/inspector node server.mjs
-```
-
-## Tests
+### Run Tests
 
 ```bash
 node test-mcp.mjs
 ```
 
-Runs 16 tests against the live Derive API (15 tool calls + tool listing).
-
 ## API Reference
 
-All tools call the [Derive public REST API](https://docs.derive.xyz/reference/overview) at `https://api.lyra.finance`. No API keys or authentication needed.
+All tools call the [Derive public REST API](https://docs.derive.xyz/reference/overview). No API keys or authentication needed.
+
+## License
+
+MIT
