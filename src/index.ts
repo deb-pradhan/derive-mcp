@@ -3,10 +3,12 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import express, { Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  isInitializeRequest,
 } from '@modelcontextprotocol/sdk/types.js';
 import { DeriveClient, DeriveApiError } from './client.js';
 import { tools } from './tools.js';
@@ -27,16 +29,17 @@ import type {
   GetStatisticsParams,
 } from './types.js';
 
-const server = new Server(
-  { name: 'derive-market-data', version: '1.0.0' },
-  { capabilities: { tools: {} } },
-);
-
 const client = new DeriveClient();
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+function createMcpServer() {
+  const server = new Server(
+    { name: 'derive-market-data', version: '1.0.0' },
+    { capabilities: { tools: {} } },
+  );
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
   const a = args as Record<string, unknown>;
 
@@ -107,68 +110,142 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true,
     };
   }
-});
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
   });
+
+  return server;
 }
 
 async function main() {
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
 
   if (port) {
-    // HTTP mode — stateless, no session management
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
+    // HTTP mode — with session management for Streamable HTTP transport
+    const transports: Record<string, StreamableHTTPServerTransport> = {};
+
+    const app = express();
+    app.use(express.json());
+
+    // CORS — allow all origins so browser-based and remote MCP clients can connect
+    app.use((_req: Request, res: Response, next) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id, MCP-Protocol-Version');
+      res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
+      next();
     });
 
-    const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      const url = req.url ?? '/';
+    app.options('*', (_req: Request, res: Response) => {
+      res.status(204).end();
+    });
 
-      if (req.method === 'GET' && url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok' }));
-        return;
-      }
+    app.get('/health', (_req: Request, res: Response) => {
+      res.json({ status: 'ok' });
+    });
 
-      if (req.method === 'GET' && url === '/metrics') {
-        const metrics = client.getMetrics();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(metrics, null, 2));
-        return;
-      }
+    app.get('/metrics', (_req: Request, res: Response) => {
+      res.json(client.getMetrics());
+    });
 
-      if (url === '/mcp') {
-        // Parse body for POST requests
-        if (req.method === 'POST') {
-          const body = await readBody(req).catch(() => '{}');
-          (req as IncomingMessage & { body: unknown }).body = JSON.parse(body);
+    app.post('/mcp', async (req: Request, res: Response) => {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      console.log(`[MCP] POST /mcp - Session: ${sessionId || 'none'}`);
+      
+      try {
+        if (sessionId && transports[sessionId]) {
+          console.log(`[MCP] Reusing existing session: ${sessionId}`);
+          await transports[sessionId].handleRequest(req, res, req.body);
+        } else if (sessionId && !transports[sessionId]) {
+          // Session ID provided but not found — likely a server restart; client must reinitialise
+          console.log(`[MCP] Session not found: ${sessionId}`);
+          res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found. Please reinitialise.' }, id: null });
+        } else if (!sessionId && isInitializeRequest(req.body)) {
+          console.log(`[MCP] Creating new session for initialize request`);
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (id) => { 
+              console.log(`[MCP] Session initialized: ${id}`);
+              transports[id] = transport; 
+            },
+          });
+          transport.onclose = () => {
+            if (transport.sessionId) {
+              console.log(`[MCP] Session closed: ${transport.sessionId}`);
+              delete transports[transport.sessionId];
+            }
+          };
+          const serverInstance = createMcpServer();
+          await serverInstance.connect(transport);
+          await transport.handleRequest(req, res, req.body);
+        } else {
+          console.log(`[MCP] Bad request - no session ID and not initialize`);
+          res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: No valid session ID' }, id: null });
         }
-        transport.handleRequest(req, res).catch((err) => {
-          console.error('Transport error:', err);
-          if (!res.headersSent) res.writeHead(500).end();
-        });
-        return;
+      } catch (error) {
+        console.error('[MCP] Error:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal server error' }, id: null });
+        }
       }
-
-      res.writeHead(404).end();
     });
 
-    await server.connect(transport);
-    httpServer.listen(port, '0.0.0.0', () => {
-      console.error(`Derive MCP server v1.0.0 listening on port ${port}`);
+    app.get('/mcp', async (req: Request, res: Response) => {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      console.log(`[MCP] GET /mcp - Session: ${sessionId || 'none'}`);
+
+      if (!sessionId) {
+        return res.status(400).json({ error: 'Missing mcp-session-id header' });
+      }
+      if (!transports[sessionId]) {
+        return res.status(404).json({ error: 'Session not found. Please reinitialise.' });
+      }
+      // Disable nginx buffering so SSE events are flushed immediately
+      res.setHeader('X-Accel-Buffering', 'no');
+      try {
+        await transports[sessionId].handleRequest(req, res);
+      } catch (error) {
+        console.error('[MCP] GET error:', error);
+        if (!res.headersSent) res.status(500).end();
+      }
     });
-  } else {
-    // Stdio mode for local MCP clients
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error('Derive Market Data MCP server running on stdio');
+
+    app.delete('/mcp', async (req: Request, res: Response) => {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      console.log(`[MCP] DELETE /mcp - Session: ${sessionId || 'none'}`);
+
+      if (!sessionId) {
+        return res.status(400).json({ error: 'Missing mcp-session-id header' });
+      }
+      if (!transports[sessionId]) {
+        return res.status(404).json({ error: 'Session not found.' });
+      }
+      try {
+        await transports[sessionId].handleRequest(req, res);
+      } catch (error) {
+        console.error('[MCP] DELETE error:', error);
+        if (!res.headersSent) res.status(500).end();
+      }
+    });
+
+    app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response) => {
+      res.json({
+        issuer: `https://derive-mcp-production.up.railway.app`,
+        authorization_endpoint: '',
+        token_endpoint: '',
+        response_types_supported: [],
+      });
+    });
+
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`[MCP] Server listening on port ${port}`);
+    });
+    return;
   }
+
+  // Stdio mode for local MCP clients
+  const stdioServer = createMcpServer();
+  const transport = new StdioServerTransport();
+  await stdioServer.connect(transport);
+  console.error('Derive Market Data MCP server running on stdio');
 }
 
 main().catch((error) => {
