@@ -226,15 +226,6 @@ async function main() {
       }
     });
 
-    app.get('/.well-known/oauth-authorization-server', (_req: Request, res: Response) => {
-      res.json({
-        issuer: `https://derive-mcp-production.up.railway.app`,
-        authorization_endpoint: '',
-        token_endpoint: '',
-        response_types_supported: [],
-      });
-    });
-
     app.listen(port, '0.0.0.0', () => {
       console.log(`[MCP] Server listening on port ${port}`);
     });
